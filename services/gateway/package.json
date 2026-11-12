@@ -1,0 +1,30 @@
+{
+  "name": "gateway",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@fastify/sensible": "6.0.7",
+    "fastify": "5.12.8",
+    "near-api-js": "7.4.0",
+    "pino": "9.14.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "fast-check": "4.10.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
