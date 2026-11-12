@@ -1,0 +1,32 @@
+{
+  "name": "nearsentra-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "NearSentra operator dashboard (React + Vite)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "engines": {
+    "node": "^22.22.2 || >=24.0.0"
+  },
+  "dependencies": {
+    "@hot-labs/near-connect": "0.11.4",
+    "bootstrap": "5.3.8",
+    "near-api-js": "7.4.0",
+    "near-connect-hooks": "1.1.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "typescript": "6.0.3",
+    "util": "0.12.5",
+    "vite": "8.3.6"
+  }
+}
