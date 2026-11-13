@@ -145,3 +145,125 @@ describe("POST /transfer", () => {
     expect(res.json()).toEqual({ status: "ok" });
   });
 });
+
+describe("POST /transfer idempotency", () => {
+  async function appWith(vault: VaultClient) {
+    app = await buildApp({ vault, logLevel: "silent" });
+    return app;
+  }
+  const send = (a: FastifyInstance, payload: object = body) =>
+    a.inject({ method: "POST", url: "/transfer", payload });
+
+  it("replayed request_id returns the original response and submits only once", async () => {
+    const v = fake();
+    const a = await appWith(v);
+    const first = await send(a);
+    const second = await send(a);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual(first.json());
+    expect(second.headers["idempotent-replay"]).toBe("true");
+    expect(first.headers["idempotent-replay"]).toBeUndefined();
+    expect(v.submitted).toBe(1);
+  });
+
+  it("a replayed contract rejection is also not resubmitted", async () => {
+    let calls = 0;
+    const v = fake({
+      submitTransfer: async () => {
+        calls++;
+        return { ...ok, status: "failure", failureMessage: "x", rejectionReason: "ERR_PER_TX_LIMIT" };
+      },
+    });
+    const a = await appWith(v);
+    await send(a);
+    const again = await send(a);
+    expect(again.json()).toMatchObject({ decision: "rejected", rejectionReason: "ERR_PER_TX_LIMIT" });
+    expect(calls).toBe(1);
+  });
+
+  it("concurrent duplicates share one submission", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const v = fake({
+      submitTransfer: async () => {
+        calls++;
+        await gate;
+        return ok;
+      },
+    });
+    const a = await appWith(v);
+    const p1 = send(a);
+    const p2 = send(a);
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(calls).toBe(1);
+    expect(r1.json()).toEqual(r2.json());
+  });
+
+  it("same request_id with a different amount or recipient => 409, nothing submitted", async () => {
+    const v = fake();
+    const a = await appWith(v);
+    await send(a);
+    const diffAmount = await send(a, { ...body, amount: "501" });
+    const diffRecipient = await send(a, { ...body, recipient: "attacker.sandbox" });
+    expect(diffAmount.statusCode).toBe(409);
+    expect(diffAmount.json().error).toBe("request_id_conflict");
+    expect(diffRecipient.statusCode).toBe(409);
+    expect(v.submitted).toBe(1);
+  });
+
+  it("the same request_id from a different agent is independent", async () => {
+    const v = fake();
+    const a = await appWith(v);
+    await send(a);
+    const other = await send(a, { ...body, agent_id: "agent2.sandbox" });
+    expect(other.statusCode).toBe(200);
+    expect(v.submitted).toBe(2);
+  });
+
+  it("an ambiguous submission failure is remembered, so a retry cannot double pay", async () => {
+    let calls = 0;
+    const v = fake({
+      submitTransfer: async () => {
+        calls++;
+        throw new Error("timeout");
+      },
+    });
+    const a = await appWith(v);
+    const first = await send(a);
+    const retry = await send(a);
+    expect(first.statusCode).toBe(502);
+    expect(retry.statusCode).toBe(502);
+    expect(retry.headers["idempotent-replay"]).toBe("true");
+    expect(calls).toBe(1);
+  });
+
+  it("failures before anything is submitted (preflight 503) can be retried", async () => {
+    let views = 0;
+    const v = fake({
+      viewAgentPolicy: async () => {
+        views++;
+        if (views === 1) throw new Error("rpc down");
+        return policy;
+      },
+    });
+    const a = await appWith(v);
+    const first = await send(a);
+    const retry = await send(a);
+    expect(first.statusCode).toBe(503);
+    expect(retry.statusCode).toBe(200);
+    expect(v.submitted).toBe(1);
+  });
+
+  it("no-key rejections (422) are not remembered", async () => {
+    let hasKey = false;
+    const v = fake({ hasAgentKey: () => hasKey });
+    const a = await appWith(v);
+    expect((await send(a)).statusCode).toBe(422);
+    hasKey = true;
+    expect((await send(a)).statusCode).toBe(200);
+  });
+});
