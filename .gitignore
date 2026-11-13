@@ -1,0 +1,48 @@
+.references/
+
+# =============================================================
+# Secrets and key material — NEVER commit these
+# =============================================================
+.env
+*.env
+.env.*
+*.key
+*.pem
+.near-credentials/
+**/.near-credentials/
+**/keystore/
+keystore/
+
+# =============================================================
+# Build artifacts
+# =============================================================
+target/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+
+# WASM build output — keep contracts/vault/res/ but ignore all others
+*.wasm
+!contracts/vault/res/*.wasm
+
+# =============================================================
+# IDE and OS
+# =============================================================
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Local sandbox connection details (generated, contains sandbox keys)
+.localnet/
+
+# Keep the documented example env files
+!.env.example
+!**/.env.example
+
+# Kiro IDE specs, steering and skill links 
+.kiro/
