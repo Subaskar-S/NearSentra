@@ -74,12 +74,34 @@ fn spent(v: &Vault) -> u128 {
     v.get_agent_policy(agent()).unwrap().spent_in_epoch.0
 }
 
-fn transfer(v: &mut Vault, amount: u128) {
+/// Approve a transfer and leave it pending (its callback has not run yet).
+fn request(v: &mut Vault, amount: u128) {
     set_caller(&agent(), START_TS);
     let _ = v.request_transfer(recipient(), U128(amount));
 }
 
-fn run_callback(v: &mut Vault, amount: u128, result: PromiseResult) {
+/// Approve a transfer and settle it successfully, like a payout that went through.
+fn transfer(v: &mut Vault, amount: u128) {
+    request(v, amount);
+    settle(v, PromiseResult::Successful(vec![]));
+}
+
+/// ID of the agent's in-flight reservation (panics if there is none).
+fn pending_id(v: &Vault) -> u64 {
+    v.agents
+        .get(&agent())
+        .and_then(|p| p.pending.as_ref().map(|t| t.id))
+        .expect("agent has a pending reservation")
+}
+
+/// Run the callback of the agent's in-flight reservation.
+fn settle(v: &mut Vault, result: PromiseResult) {
+    let id = pending_id(v);
+    run_callback(v, id, result);
+}
+
+/// Run `on_transfer_complete` for an explicit reservation ID, as the vault's own promise would.
+fn run_callback(v: &mut Vault, id: u64, result: PromiseResult) {
     testing_env!(
         ctx(&accounts(5), START_TS).build(),
         test_vm_config(),
@@ -87,12 +109,13 @@ fn run_callback(v: &mut Vault, amount: u128, result: PromiseResult) {
         Default::default(),
         vec![result]
     );
-    let epoch_start = v
-        .agents
-        .get(&agent())
-        .map(|p| p.epoch_start_ns)
-        .unwrap_or(START_TS);
-    v.on_transfer_complete(agent(), U128(amount), U64(epoch_start));
+    v.on_transfer_complete(agent(), U64(id));
+}
+
+fn has_event(name: &str) -> bool {
+    near_sdk::test_utils::get_logs()
+        .iter()
+        .any(|l| l.contains(&format!("\"event\":\"{name}\"")))
 }
 
 // ── init ─────────────────────────────────────────────────────────────────────
@@ -417,6 +440,7 @@ fn epoch_resets_after_duration() {
     set_caller(&agent(), START_TS + EPOCH_NS - 1);
     let _ = v.request_transfer(recipient(), U128(5));
     assert_eq!(spent(&v), 15);
+    settle(&mut v, PromiseResult::Successful(vec![])); // one reservation at a time
 
     // At the boundary: counter resets, then new amount is applied.
     let now = START_TS + EPOCH_NS;
@@ -443,47 +467,253 @@ fn epoch_reset_allows_full_budget_again() {
 #[test]
 fn callback_failed_rolls_back() {
     let mut v = vault_with_agent();
-    transfer(&mut v, 5);
-    run_callback(&mut v, 5, PromiseResult::Failed);
+    request(&mut v, 5);
+    settle(&mut v, PromiseResult::Failed);
     assert_eq!(spent(&v), 0);
+    assert!(has_event("transfer_rolled_back"));
 }
 
 #[test]
-fn callback_success_keeps_spent() {
+fn callback_success_keeps_spent_and_clears_the_reservation() {
     let mut v = vault_with_agent();
-    transfer(&mut v, 5);
-    run_callback(&mut v, 5, PromiseResult::Successful(vec![]));
+    request(&mut v, 5);
+    settle(&mut v, PromiseResult::Successful(vec![]));
     assert_eq!(spent(&v), 5);
+    assert!(!has_event("transfer_rolled_back"));
+    assert!(
+        v.get_agent_policy(agent())
+            .unwrap()
+            .pending_transfer_id
+            .is_none()
+    );
 }
 
 #[test]
-fn callback_concurrent_rollback_is_not_zeroing() {
-    // spent = 5 : A = 2 (fails), B = 3 (succeeds)
-    let mut v = vault_with_agent();
-    transfer(&mut v, 2);
-    transfer(&mut v, 3);
-    assert_eq!(spent(&v), 5);
-
-    run_callback(&mut v, 2, PromiseResult::Failed);
-    assert_eq!(spent(&v), 3);
-
-    run_callback(&mut v, 3, PromiseResult::Successful(vec![]));
-    assert_eq!(spent(&v), 3);
-}
-
-#[test]
-fn callback_failed_saturates_at_zero() {
-    let mut v = vault_with_agent();
-    transfer(&mut v, 2);
-    run_callback(&mut v, 9, PromiseResult::Failed);
-    assert_eq!(spent(&v), 0);
-}
-
-#[test]
-fn callback_unknown_agent_is_noop() {
+fn callback_for_unknown_agent_is_noop() {
     let mut v = new_vault();
     run_callback(&mut v, 1, PromiseResult::Failed);
     assert!(v.get_agent_policy(agent()).is_none());
+}
+
+// ── pending-transfer reservations ────────────────────────────────────────────
+
+#[test]
+fn approved_request_records_a_reservation_visible_in_the_view() {
+    let mut v = vault_with_agent();
+    request(&mut v, 7);
+    let view = v.get_agent_policy(agent()).unwrap();
+    assert_eq!(view.pending_transfer_id, Some(U64(1)));
+    assert_eq!(view.pending_amount, Some(U128(7)));
+    assert_eq!(
+        view.spent_in_epoch.0, 7,
+        "the reserved amount is already counted"
+    );
+    let logs = near_sdk::test_utils::get_logs();
+    assert!(
+        logs.iter()
+            .any(|l| l.contains("\"event\":\"transfer_requested\"")
+                && l.contains("\"decision\":\"approved\"")
+                && l.contains("\"transfer_id\":\"1\"")),
+        "approved event carries the transfer id: {logs:?}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "ERR_TRANSFER_PENDING")]
+fn second_request_while_one_is_pending_is_rejected() {
+    let mut v = vault_with_agent();
+    request(&mut v, 3);
+    request(&mut v, 4);
+}
+
+#[test]
+fn rejected_request_while_pending_changes_nothing() {
+    let mut v = vault_with_agent();
+    request(&mut v, 3);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| request(&mut v, 4)));
+    assert!(result.is_err());
+    // A real chain reverts the state of a panicked call; in the unit harness the panic fires
+    // before any mutation, so the counter and the reservation are exactly as before.
+    assert_eq!(spent(&v), 3);
+    assert_eq!(pending_id(&v), 1);
+    assert_eq!(
+        v.get_agent_policy(agent()).unwrap().pending_amount,
+        Some(U128(3))
+    );
+}
+
+#[test]
+fn policy_violations_are_still_reported_while_a_transfer_is_pending() {
+    let mut v = vault_with_agent();
+    request(&mut v, 3);
+    set_caller(&agent(), START_TS);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = v.request_transfer(other(), U128(1)); // not on the allowlist
+    }));
+    let msg = *result.unwrap_err().downcast::<String>().unwrap();
+    assert!(msg.contains("ERR_RECIPIENT_NOT_ALLOWED"), "{msg}");
+}
+
+#[test]
+fn next_request_is_allowed_after_settlement_and_ids_are_never_reused() {
+    let mut v = vault_with_agent();
+    request(&mut v, 2);
+    assert_eq!(pending_id(&v), 1);
+    settle(&mut v, PromiseResult::Failed); // rolled back, but the id is consumed
+    request(&mut v, 2);
+    assert_eq!(pending_id(&v), 2);
+    settle(&mut v, PromiseResult::Successful(vec![]));
+    request(&mut v, 2);
+    assert_eq!(pending_id(&v), 3);
+}
+
+#[test]
+fn duplicate_callback_does_not_refund_twice() {
+    let mut v = vault_with_agent();
+    request(&mut v, 5);
+    run_callback(&mut v, 1, PromiseResult::Failed);
+    assert_eq!(spent(&v), 0);
+
+    // A different transfer is now counted and pending.
+    request(&mut v, 3);
+    assert_eq!(spent(&v), 3);
+
+    // The first callback is replayed: it must not touch the new reservation or the counter.
+    run_callback(&mut v, 1, PromiseResult::Failed);
+    assert_eq!(
+        spent(&v),
+        3,
+        "a replayed callback must not lower the counter"
+    );
+    assert_eq!(pending_id(&v), 2, "the new reservation is untouched");
+    assert!(has_event("callback_ignored"));
+    assert!(!has_event("transfer_rolled_back"));
+}
+
+#[test]
+fn replayed_callback_after_settlement_is_ignored() {
+    let mut v = vault_with_agent();
+    request(&mut v, 5);
+    run_callback(&mut v, 1, PromiseResult::Successful(vec![]));
+    run_callback(&mut v, 1, PromiseResult::Failed); // forged or duplicated failure
+    assert_eq!(
+        spent(&v),
+        5,
+        "a settled transfer can never be refunded afterwards"
+    );
+    assert!(has_event("callback_ignored"));
+}
+
+#[test]
+fn callback_with_an_unknown_id_is_ignored() {
+    let mut v = vault_with_agent();
+    request(&mut v, 5);
+    run_callback(&mut v, 99, PromiseResult::Failed);
+    assert_eq!(spent(&v), 5);
+    assert_eq!(
+        pending_id(&v),
+        1,
+        "the real reservation is still waiting for its callback"
+    );
+    assert!(has_event("callback_ignored"));
+}
+
+#[test]
+fn failed_callback_after_the_epoch_changed_does_not_undercount() {
+    let mut v = vault_with_agent();
+    request(&mut v, 10); // reserved in epoch 1
+    // Defence in depth: simulate the counter having been reset and re-used by a new epoch.
+    {
+        let p = v.agents.get_mut(&agent()).unwrap();
+        p.epoch_start_ns += EPOCH_NS;
+        p.spent_in_epoch = 4;
+    }
+    settle(&mut v, PromiseResult::Failed);
+    assert_eq!(
+        spent(&v),
+        4,
+        "an epoch-1 failure must not reduce epoch-2 spend"
+    );
+    assert!(
+        v.get_agent_policy(agent())
+            .unwrap()
+            .pending_transfer_id
+            .is_none(),
+        "the reservation is cleared either way"
+    );
+}
+
+#[test]
+fn rollback_below_zero_leaves_the_counter_alone_and_logs_an_anomaly() {
+    let mut v = vault_with_agent();
+    request(&mut v, 5);
+    v.agents.get_mut(&agent()).unwrap().spent_in_epoch = 2; // violates the invariant on purpose
+    settle(&mut v, PromiseResult::Failed);
+    assert_eq!(spent(&v), 2, "never lower the counter on a guess");
+    assert!(has_event("accounting_anomaly"));
+    assert!(!has_event("transfer_rolled_back"));
+}
+
+#[test]
+fn stuck_reservation_expires_stays_counted_and_a_late_callback_is_ignored() {
+    let mut v = vault_with_agent();
+    request(&mut v, 6); // created at block 0
+    assert_eq!(spent(&v), 6);
+
+    // Still within the timeout: blocked.
+    testing_env!(
+        ctx(&agent(), START_TS)
+            .block_height(crate::policy::PENDING_TIMEOUT_BLOCKS)
+            .build()
+    );
+    let blocked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = v.request_transfer(recipient(), U128(1));
+    }));
+    assert!(blocked.is_err());
+
+    // Past the timeout: the stale reservation is cleared (amount stays counted) and a new one made.
+    testing_env!(
+        ctx(&agent(), START_TS)
+            .block_height(crate::policy::PENDING_TIMEOUT_BLOCKS + 1)
+            .build()
+    );
+    let _ = v.request_transfer(recipient(), U128(1));
+    assert!(has_event("pending_expired"));
+    assert_eq!(
+        spent(&v),
+        7,
+        "the expired amount stays counted (fail-closed)"
+    );
+    assert_eq!(pending_id(&v), 2);
+
+    // The callback of the expired reservation finally arrives and fails: it must change nothing.
+    run_callback(&mut v, 1, PromiseResult::Failed);
+    assert_eq!(spent(&v), 7);
+    assert_eq!(pending_id(&v), 2);
+    assert!(has_event("callback_ignored"));
+}
+
+#[test]
+fn delayed_failure_in_the_same_epoch_but_after_clock_expiry_still_refunds_once() {
+    // The epoch elapsed on the clock but no request has reset it yet (the reset is lazy).
+    // The refund is harmless: the next request resets the counter to zero anyway.
+    let mut v = vault_with_agent();
+    request(&mut v, 10);
+    testing_env!(
+        ctx(&accounts(5), START_TS + EPOCH_NS + 5).build(),
+        test_vm_config(),
+        near_sdk::RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![PromiseResult::Failed]
+    );
+    v.on_transfer_complete(agent(), U64(1));
+    set_caller(&agent(), START_TS + EPOCH_NS + 6);
+    let _ = v.request_transfer(recipient(), U128(4));
+    assert_eq!(
+        spent(&v),
+        4,
+        "the new epoch starts from zero plus the new request only"
+    );
 }
 
 // ── pause / revoke / sentinel ────────────────────────────────────────────────
@@ -676,26 +906,45 @@ fn unpause_agent_unknown() {
 }
 
 #[test]
-fn callback_failed_after_epoch_rollover_does_not_undercount() {
+fn epoch_rollover_cannot_happen_while_a_transfer_is_pending() {
+    // With one reservation per agent, a request that would reset the epoch is rejected while
+    // another is in flight, and the rejection reverts the reset. So the counter can never be
+    // reset underneath a pending transfer.
     let mut v = vault_with_agent();
-    transfer(&mut v, 10); // counted in epoch 1
-    let old_epoch_start = v.get_agent_policy(agent()).unwrap().epoch_start_ns.0;
+    request(&mut v, 10); // reserved in epoch 1
 
-    // Epoch rolls over; new transfer counted in epoch 2.
     set_caller(&agent(), START_TS + EPOCH_NS);
-    let _ = v.request_transfer(recipient(), U128(4));
-    assert_eq!(spent(&v), 4);
+    let blocked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = v.request_transfer(recipient(), U128(4));
+    }));
+    let msg = *blocked.unwrap_err().downcast::<String>().unwrap();
+    assert!(msg.contains("ERR_TRANSFER_PENDING"), "{msg}");
+    // (On chain the panic also reverts the lazy epoch reset that ran just before the check;
+    // the sandbox test `epoch_rollover_with_a_pending_transfer` proves that end to end.)
+}
 
-    // The epoch-1 transfer fails late: must NOT reduce epoch-2 spend.
+#[test]
+fn rollover_after_expiry_then_late_failure_does_not_undercount_the_new_epoch() {
+    let mut v = vault_with_agent();
+    request(&mut v, 10); // epoch 1, reservation 1 at block 0
+
+    // Much later (after the timeout and an epoch boundary) the agent asks again.
     testing_env!(
-        ctx(&accounts(5), START_TS + EPOCH_NS).build(),
-        test_vm_config(),
-        near_sdk::RuntimeFeesConfig::test(),
-        Default::default(),
-        vec![PromiseResult::Failed]
+        ctx(&agent(), START_TS + EPOCH_NS + 1)
+            .block_height(crate::policy::PENDING_TIMEOUT_BLOCKS + 1)
+            .build()
     );
-    v.on_transfer_complete(agent(), U128(10), U64(old_epoch_start));
+    let _ = v.request_transfer(recipient(), U128(4));
+    assert_eq!(
+        spent(&v),
+        4,
+        "new epoch: counter was reset, only the new request counts"
+    );
+
+    // The epoch-1 payout is reported failed very late: it must NOT reduce epoch-2 spend.
+    run_callback(&mut v, 1, PromiseResult::Failed);
     assert_eq!(spent(&v), 4);
+    assert_eq!(pending_id(&v), 2);
 }
 
 #[test]
@@ -718,7 +967,7 @@ fn zero_amount_rejection_emits_event() {
 #[test]
 fn approved_transfer_event_uses_string_amounts() {
     let mut v = vault_with_agent();
-    transfer(&mut v, 7);
+    request(&mut v, 7); // `transfer` also settles, which starts a fresh log buffer
     let logs = near_sdk::test_utils::get_logs();
     assert!(
         logs.iter()

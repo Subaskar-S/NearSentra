@@ -1,15 +1,18 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import sensible from "@fastify/sensible";
 import type { VaultClient } from "./near/client.js";
+import type { AuthConfig } from "./auth.js";
 import { registerTransferRoute } from "./routes/transfer.js";
 
 export interface BuildAppOptions {
   vault: VaultClient;
+  /** Required on purpose: every caller must decide how /transfer is authenticated. */
+  auth: AuthConfig;
   logLevel?: string;
 }
 
 /** Build the Fastify app. Separate from `index.ts` so tests can inject a fake vault. */
-export async function buildApp({ vault, logLevel = "info" }: BuildAppOptions): Promise<FastifyInstance> {
+export async function buildApp({ vault, auth, logLevel = "info" }: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: 16 * 1024,
     logger: {
@@ -24,6 +27,6 @@ export async function buildApp({ vault, logLevel = "info" }: BuildAppOptions): P
   await app.register(sensible);
 
   app.get("/health", async () => ({ status: "ok" }));
-  registerTransferRoute(app, { vault });
+  registerTransferRoute(app, { vault, auth });
   return app;
 }

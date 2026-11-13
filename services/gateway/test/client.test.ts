@@ -43,7 +43,12 @@ describe("loadConfig", () => {
   const key = "ed25519:" + "1".repeat(64);
 
   it("reads numbered agent key pairs", () => {
-    const c = loadConfig({ ...base, AGENT_1_ACCOUNT_ID: "a.sandbox", AGENT_1_PRIVATE_KEY: key });
+    const c = loadConfig({
+      ...base,
+      AGENT_1_ACCOUNT_ID: "a.sandbox",
+      AGENT_1_PRIVATE_KEY: key,
+      GATEWAY_ALLOW_UNAUTHENTICATED: "true",
+    });
     expect(c.agentKeys.get("a.sandbox")).toBe(key);
     expect(c.host).toBe("127.0.0.1");
   });

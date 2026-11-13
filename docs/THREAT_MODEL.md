@@ -89,9 +89,9 @@ Test references use `contracts/vault/tests/<file>::<test>` for sandbox integrati
 
 - **Preconditions:** Agent has an epoch limit.
 - **Attacker Action:** Splits a large payment into many allowed ones; tries to reset the counter by causing failed payouts; or times spending at an epoch boundary.
-- **Expected System Behavior:** Splitting is limited by the cumulative counter (`ERR_EPOCH_LIMIT`). Rollback only subtracts a failed amount and only if the agent is still in the epoch it was counted in, so failing payouts cannot erase other spend. Fixed windows allow up to two epoch limits in a short span if an agent spends fully just before and just after a reset.
+- **Expected System Behavior:** Splitting is limited by the cumulative counter (`ERR_EPOCH_LIMIT`). Each agent has at most one reserved transfer in flight (a second request gets `ERR_TRANSFER_PENDING`). The callback refunds the amount stored in that reservation, never an amount passed as an argument, and only if the agent is still in the epoch it was counted in, so failing payouts cannot erase other spend. Fixed windows allow up to two epoch limits in a short span if an agent spends fully just before and just after a reset.
 - **Enforcement Layer:** contract
-- **Test or Simulation Reference:** `test_authorization.rs::epoch_limit_rejected_when_cumulative_exceeds`; `test_epoch.rs::epoch_resets_after_duration_and_emits_event`, `::no_reset_within_epoch`; `src/tests.rs::callback_concurrent_rollback_is_not_zeroing`, `::callback_failed_after_epoch_rollover_does_not_undercount`.
+- **Test or Simulation Reference:** `test_authorization.rs::epoch_limit_rejected_when_cumulative_exceeds`; `test_epoch.rs::epoch_resets_after_duration_and_emits_event`, `::no_reset_within_epoch`; `src/tests.rs::second_request_while_one_is_pending_is_rejected`, `::rollover_after_expiry_then_late_failure_does_not_undercount_the_new_epoch`; `test_reservations.rs::concurrent_requests_never_exceed_the_epoch_budget`, `::failed_payout_after_epoch_rollover_refunds_only_the_new_epoch`.
 - **Residual Risk:** Accepted. The boundary burst is inherent to fixed epochs; operators who care should choose a per-transaction limit and epoch limit whose double is tolerable.
 
 ### T7. Replay of a previously authorized request
@@ -116,9 +116,9 @@ Test references use `contracts/vault/tests/<file>::<test>` for sandbox integrati
 
 - **Preconditions:** Policy limits are near `u128::MAX`.
 - **Attacker Action:** Requests amounts that wrap the spend counter.
-- **Expected System Behavior:** `spent + amount` uses `checked_add`; overflow is rejected with `ERR_OVERFLOW` and logged as a rejection. The release profile sets `overflow-checks = true`. Rollback uses `saturating_sub`. JSON amounts are `U128` strings, so no precision is lost.
+- **Expected System Behavior:** `spent + amount` uses `checked_add`; overflow is rejected with `ERR_OVERFLOW` and logged as a rejection. The release profile sets `overflow-checks = true`. Rollback uses `checked_sub`: a rollback that would go below zero leaves the counter untouched and logs `accounting_anomaly`. JSON amounts are `U128` strings, so no precision is lost.
 - **Enforcement Layer:** contract
-- **Test or Simulation Reference:** `src/tests.rs::transfer_counter_overflow_is_rejected_not_wrapped`, `::callback_failed_saturates_at_zero`; gateway `schema.test.ts` "accepts the amount bounds 1 and 2^128-1".
+- **Test or Simulation Reference:** `src/tests.rs::transfer_counter_overflow_is_rejected_not_wrapped`, `::rollback_below_zero_leaves_the_counter_alone_and_logs_an_anomaly`; gateway `schema.test.ts` "accepts the amount bounds 1 and 2^128-1".
 - **Residual Risk:** Mitigated.
 
 ### T10. Sentinel compromise
@@ -170,10 +170,10 @@ Test references use `contracts/vault/tests/<file>::<test>` for sandbox integrati
 
 - **Preconditions:** The vault approves a transfer whose payout later fails (for example the recipient account does not exist).
 - **Attacker Action:** Crafts failing payouts to leave the counter wrong in either direction.
-- **Expected System Behavior:** The counter is raised before the promise. The `#[private]` callback `on_transfer_complete` checks the promise result, subtracts only the failed amount with `saturating_sub`, skips the subtraction if the agent's epoch has rolled over since, and emits `transfer_rolled_back`. Nobody can call the callback directly.
+- **Expected System Behavior:** The counter is raised before the promise. The `#[private]` callback `on_transfer_complete` checks the promise result, looks up the agent's single reservation by transfer ID, ignores any other ID (`callback_ignored`, so a duplicate or stale callback changes nothing), refunds the stored amount with `checked_sub` only if the agent's epoch has not rolled over since, and emits `transfer_rolled_back`. Nobody can call the callback directly. A reservation whose callback never ran is cleared after 100 blocks and stays counted as spent (fail-closed, `pending_expired`).
 - **Enforcement Layer:** contract
-- **Test or Simulation Reference:** `test_callback.rs::failed_transfer_rolls_back_counter_and_emits_event`, `::successful_transfer_emits_no_rollback`, `::direct_callback_invocation_is_rejected`; `src/tests.rs::callback_failed_rolls_back`, `::callback_concurrent_rollback_is_not_zeroing`.
-- **Residual Risk:** Mitigated. Until the callback runs (one or two blocks), the counter is conservatively high.
+- **Test or Simulation Reference:** `test_callback.rs::failed_transfer_rolls_back_counter_and_emits_event`, `::successful_transfer_emits_no_rollback`, `::direct_callback_invocation_is_rejected`; `src/tests.rs::callback_failed_rolls_back`, `::duplicate_callback_does_not_refund_twice`; `test_reservations.rs::nobody_can_forge_a_callback`, `::callback_gas_with_a_maximum_size_policy_stays_under_the_reserve`.
+- **Residual Risk:** Mitigated. Until the callback runs (one or two blocks), the counter is conservatively high and the agent cannot start another transfer (it retries after `ERR_TRANSFER_PENDING`).
 
 ### T16. DoS through excessive requests or storage growth
 

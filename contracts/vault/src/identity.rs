@@ -39,6 +39,8 @@ pub fn register_agent(vault: &mut Vault, agent_id: AccountId, params: PolicyPara
         allowlist,
         expiry_ns: params.expiry_ns.map(|v| v.0),
         version: 1,
+        next_transfer_id: 1,
+        pending: None,
     };
     vault.agents.insert(agent_id, policy);
 }

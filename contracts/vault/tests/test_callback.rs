@@ -93,10 +93,14 @@ async fn direct_callback_invocation_is_rejected() -> testresult::TestResult<()> 
         .call(
             &env.admin,
             "on_transfer_complete",
-            json!({"agent_id": env.agent.id, "amount": NEAR.to_string(), "epoch_start_ns": "0"}),
+            json!({"agent_id": env.agent.id, "transfer_id": "1"}),
         )
         .await?;
     assert!(res.is_failure());
+    assert!(
+        error_text(&res).contains("is private"),
+        "must fail because the callback is private, not for a bad payload: {res:?}"
+    );
     assert_eq!(env.spent(&env.agent.id).await, NEAR);
     Ok(())
 }

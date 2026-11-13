@@ -8,7 +8,11 @@ const envSchema = z.object({
   HOST: z.string().default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  GATEWAY_ALLOW_UNAUTHENTICATED: z.enum(["true", "false"]).default("false"),
 });
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const MIN_TOKEN_LENGTH = 32;
 
 export interface GatewayConfig {
   rpcUrl: string;
@@ -18,13 +22,19 @@ export interface GatewayConfig {
   logLevel: string;
   /** agent account ID -> function-call private key (scoped to `request_transfer`). */
   agentKeys: Map<string, string>;
+  /** agent account ID -> bearer token that clients must present to spend that agent's budget. */
+  agentTokens: Map<string, string>;
+  /** Serve agents that have no token without authentication (loopback-only local development). */
+  allowUnauthenticated: boolean;
 }
 
 /**
  * Load configuration from environment variables only. Agent keys are provided as
  * numbered pairs: AGENT_<n>_ACCOUNT_ID / AGENT_<n>_PRIVATE_KEY. Keys must be
- * function-call keys restricted to `request_transfer` on the vault.
- * Throws a descriptive error (never echoing key material) on invalid config.
+ * function-call keys restricted to `request_transfer` on the vault. Each agent also needs
+ * AGENT_<n>_API_TOKEN (at least 32 characters, unique per agent) unless
+ * GATEWAY_ALLOW_UNAUTHENTICATED=true, which is refused for any non-loopback HOST.
+ * Throws a descriptive error (never echoing key or token material) on invalid config.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const parsed = envSchema.safeParse(env);
@@ -49,6 +59,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     agentKeys.set(accountId, key);
   }
 
+  const allowUnauthenticated = parsed.data.GATEWAY_ALLOW_UNAUTHENTICATED === "true";
+  if (allowUnauthenticated && !LOOPBACK_HOSTS.has(parsed.data.HOST)) {
+    throw new Error("GATEWAY_ALLOW_UNAUTHENTICATED=true is only allowed when HOST is a loopback address");
+  }
+
+  const agentTokens = new Map<string, string>();
+  const tokenOwner = new Map<string, string>();
+  for (const name of Object.keys(env)) {
+    const m = /^AGENT_(\d+)_API_TOKEN$/.exec(name);
+    if (!m) continue;
+    const accountId = env[`AGENT_${m[1]}_ACCOUNT_ID`];
+    const token = env[name];
+    if (!accountId) throw new Error(`AGENT_${m[1]}_API_TOKEN is set but AGENT_${m[1]}_ACCOUNT_ID is missing`);
+    if (!token || token.length < MIN_TOKEN_LENGTH || /\s/.test(token)) {
+      // Do not include the value in the message.
+      throw new Error(`AGENT_${m[1]}_API_TOKEN must be at least ${MIN_TOKEN_LENGTH} characters without whitespace`);
+    }
+    if (tokenOwner.has(token)) {
+      throw new Error(`AGENT_${m[1]}_API_TOKEN duplicates another agent's token; every agent needs its own`);
+    }
+    tokenOwner.set(token, accountId);
+    agentTokens.set(accountId, token);
+  }
+  if (!allowUnauthenticated) {
+    for (const accountId of agentKeys.keys()) {
+      if (!agentTokens.has(accountId)) {
+        throw new Error(
+          `no AGENT_<n>_API_TOKEN configured for ${accountId}; set one, or GATEWAY_ALLOW_UNAUTHENTICATED=true ` +
+            "for a loopback-only local sandbox",
+        );
+      }
+    }
+  }
+
   return {
     rpcUrl: parsed.data.NEAR_RPC_URL,
     vaultAccountId: parsed.data.VAULT_ACCOUNT_ID,
@@ -56,5 +100,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     port: parsed.data.PORT,
     logLevel: parsed.data.LOG_LEVEL,
     agentKeys,
+    agentTokens,
+    allowUnauthenticated,
   };
 }

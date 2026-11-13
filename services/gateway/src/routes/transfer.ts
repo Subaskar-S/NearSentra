@@ -2,9 +2,11 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { toFieldIssues, transferRequestSchema } from "../schemas/transfer.js";
 import type { VaultClient, PolicyView } from "../near/client.js";
 import { IdempotencyStore, type StoredResponse } from "../idempotency.js";
+import { isAuthorized, type AuthConfig } from "../auth.js";
 
 export interface TransferRouteDeps {
   vault: VaultClient;
+  auth: AuthConfig;
   /** Defaults to a fresh in-memory store. Injectable for tests. */
   idempotency?: IdempotencyStore;
 }
@@ -37,7 +39,7 @@ interface Processed {
 
 export function registerTransferRoute(
   app: FastifyInstance,
-  { vault, idempotency = new IdempotencyStore() }: TransferRouteDeps,
+  { vault, auth, idempotency = new IdempotencyStore() }: TransferRouteDeps,
 ): void {
   async function process(
     log: FastifyBaseLogger,
@@ -140,6 +142,19 @@ export function registerTransferRoute(
   }
 
   app.post("/transfer", async (request, reply) => {
+    // 0. Authenticate before looking at anything else. The token must belong to the agent the body
+    // names, so one agent's token can never spend another agent's budget. The answer is the same
+    // whether the agent exists or the token is wrong.
+    const body = typeof request.body === "object" && request.body !== null ? (request.body as Record<string, unknown>) : {};
+    const claimedAgent = typeof body["agent_id"] === "string" ? body["agent_id"] : "";
+    if (!isAuthorized(auth, claimedAgent, request.headers.authorization)) {
+      request.log.warn({ agentId: claimedAgent.slice(0, 64) }, "unauthorized transfer request");
+      return reply
+        .code(401)
+        .header("www-authenticate", "Bearer")
+        .send({ error: "unauthorized", message: "a valid bearer token for this agent is required" });
+    }
+
     // 1. Validate everything (untrusted input) before any other processing.
     const parsed = transferRequestSchema.safeParse(request.body);
     if (!parsed.success) {

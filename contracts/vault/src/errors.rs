@@ -30,6 +30,8 @@ pub const ERR_RECIPIENT_NOT_ALLOWED: &str =
 pub const ERR_AMOUNT_ZERO: &str = "ERR_AMOUNT_ZERO: transfer amount must be greater than zero";
 pub const ERR_PER_TX_LIMIT: &str = "ERR_PER_TX_LIMIT: amount exceeds per-transaction limit";
 pub const ERR_EPOCH_LIMIT: &str = "ERR_EPOCH_LIMIT: amount would exceed epoch spending limit";
+pub const ERR_TRANSFER_PENDING: &str =
+    "ERR_TRANSFER_PENDING: a previous transfer for this agent has not settled yet; retry shortly";
 
 // Arithmetic
 pub const ERR_OVERFLOW: &str = "ERR_OVERFLOW: arithmetic overflow";

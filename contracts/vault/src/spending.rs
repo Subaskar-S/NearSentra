@@ -1,10 +1,11 @@
 use crate::Vault;
 use crate::errors::ERR_EPOCH_DURATION_ZERO;
 use crate::events::{
-    EpochResetData, TransferRolledBackData, log_epoch_reset, log_transfer_rolled_back,
+    AccountingAnomalyData, CallbackIgnoredData, EpochResetData, TransferRolledBackData,
+    log_accounting_anomaly, log_callback_ignored, log_epoch_reset, log_transfer_rolled_back,
 };
 use crate::policy::Policy;
-use near_sdk::json_types::{U64, U128};
+use near_sdk::json_types::U64;
 use near_sdk::{AccountId, env};
 
 /// Check if the epoch has expired; reset counter if so.
@@ -24,36 +25,70 @@ pub fn maybe_reset_epoch(agent_id: &AccountId, policy: &mut Policy) {
     }
 }
 
-/// Callback — rolls back epoch counter if the transfer promise failed.
-/// Uses saturating_sub to avoid erasing concurrent successful transactions.
+/// Callback: settles the agent's single pending reservation `transfer_id`.
 ///
-/// `epoch_start_ns` is the epoch the amount was counted in. If the agent's
-/// epoch has since rolled over, the counter was already reset to zero and the
-/// failed amount no longer sits in the current counter, so nothing is
-/// subtracted (otherwise new-epoch spend would be under-counted).
-pub fn on_transfer_complete(
-    vault: &mut Vault,
-    agent_id: AccountId,
-    amount: U128,
-    epoch_start_ns: U64,
-) {
+/// * The reservation is looked up by ID. A callback for any other ID (stale, duplicate or
+///   superseded after a timeout) changes nothing and only logs `callback_ignored`.
+/// * The amount and the epoch it was counted in come from the stored reservation, never from
+///   the callback arguments.
+/// * A failed payout is refunded only if the agent is still in the epoch the amount was counted
+///   in. After an epoch rollover the counter was already reset to zero, so subtracting would
+///   under-count the new epoch.
+/// * If the refund would take the counter below zero the invariant is broken. The counter is left
+///   as it is (never lowered on a guess) and `accounting_anomaly` is logged.
+pub fn on_transfer_complete(vault: &mut Vault, agent_id: AccountId, transfer_id: U64) {
     // A Transfer promise returns no data, so max_len = 0 is sufficient.
     // Only a genuine Failed result triggers rollback.
     let failed = matches!(
         env::promise_result_checked(0, 0),
         Err(near_sdk::PromiseError::Failed)
     );
+    let Some(policy) = vault.agents.get_mut(&agent_id) else {
+        return;
+    };
+
+    let is_current = policy
+        .pending
+        .as_ref()
+        .is_some_and(|p| p.id == transfer_id.0);
+    if !is_current {
+        let reason = if policy.pending.is_some() {
+            "superseded"
+        } else {
+            "already_settled"
+        };
+        log_callback_ignored(&CallbackIgnoredData {
+            agent_id: &agent_id,
+            transfer_id,
+            reason,
+        });
+        return;
+    }
+    let reservation = policy
+        .pending
+        .take()
+        .unwrap_or_else(|| env::panic_str("pending reservation vanished"));
+
     if !failed {
         return;
     }
-    if let Some(policy) = vault.agents.get_mut(&agent_id) {
-        if policy.epoch_start_ns != epoch_start_ns.0 {
-            return;
+    if policy.epoch_start_ns != reservation.epoch_start_ns {
+        return;
+    }
+    match policy.spent_in_epoch.checked_sub(reservation.amount) {
+        Some(remaining) => {
+            policy.spent_in_epoch = remaining;
+            log_transfer_rolled_back(&TransferRolledBackData {
+                agent_id: &agent_id,
+                amount: reservation.amount.into(),
+                transfer_id,
+            });
         }
-        policy.spent_in_epoch = policy.spent_in_epoch.saturating_sub(amount.0);
-        log_transfer_rolled_back(&TransferRolledBackData {
+        None => log_accounting_anomaly(&AccountingAnomalyData {
             agent_id: &agent_id,
-            amount,
-        });
+            transfer_id,
+            amount: reservation.amount.into(),
+            spent_in_epoch: policy.spent_in_epoch.into(),
+        }),
     }
 }

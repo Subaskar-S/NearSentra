@@ -71,7 +71,7 @@ describe("Property 10: schema-violating bodies are always rejected", () => {
         throw new Error("must not be called");
       },
     };
-    const app = await buildApp({ vault, logLevel: "silent" });
+    const app = await buildApp({ vault, auth: { tokens: new Map(), allowUnauthenticated: true }, logLevel: "silent" });
     await fc.assert(
       fc.asyncProperty(badAmount, badAccount, async (amount, agent_id) => {
         const res = await app.inject({ method: "POST", url: "/transfer", payload: { ...base, amount, agent_id } });

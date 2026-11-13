@@ -74,6 +74,8 @@ impl Vault {
                 allowlist: p.allowlist.clone(),
                 expiry_ns: p.expiry_ns.map(Into::into),
                 version: p.version,
+                pending_transfer_id: p.pending.as_ref().map(|t| t.id.into()),
+                pending_amount: p.pending.as_ref().map(|t| t.amount.into()),
             }
         })
     }
@@ -104,9 +106,11 @@ impl Vault {
         authorization::request_transfer(self, recipient, amount)
     }
 
+    /// Settles the reservation `transfer_id` of `agent_id`. Only the vault's own promise can call it.
+    /// The amount and epoch are read from the stored reservation, never from the arguments.
     #[private]
-    pub fn on_transfer_complete(&mut self, agent_id: AccountId, amount: U128, epoch_start_ns: U64) {
-        spending::on_transfer_complete(self, agent_id, amount, epoch_start_ns);
+    pub fn on_transfer_complete(&mut self, agent_id: AccountId, transfer_id: U64) {
+        spending::on_transfer_complete(self, agent_id, transfer_id);
     }
 
     // ── Suspension / revocation ───────────────────────────────────────────────
