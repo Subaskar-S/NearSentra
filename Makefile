@@ -12,7 +12,7 @@ install:
 	cd frontend && npm ci
 	test -x services/sentinel/.venv/bin/python || $(PYTHON) -m venv services/sentinel/.venv
 	services/sentinel/.venv/bin/python -m ensurepip --upgrade >/dev/null
-	services/sentinel/.venv/bin/python -m pip install --quiet --disable-pip-version-check -r services/sentinel/requirements.txt
+	services/sentinel/.venv/bin/python -m pip install --quiet --disable-pip-version-check --require-hashes -r services/sentinel/requirements.lock
 	@echo "Dependencies installed."
 
 # Run all contract unit tests and sandbox integration tests.

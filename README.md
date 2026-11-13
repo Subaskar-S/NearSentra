@@ -46,7 +46,7 @@ Dependencies installed.
 make test
 ```
 
-Runs 68 unit tests and 44 sandbox integration tests. Expected final line:
+Runs 79 unit tests and 52 sandbox integration tests. Expected final line:
 
 ```
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -113,6 +113,21 @@ make lint    # cargo clippy -D warnings, tsc --noEmit (gateway, simulation, dash
 (cd services/gateway && npx vitest run)                       # gateway tests
 (cd services/sentinel && .venv/bin/python -m pytest -q)       # sentinel tests
 ```
+
+## Gateway authentication and key custody
+
+The Gateway signs for agents with their function-call keys (limited to `request_transfer` on the vault), so it is a
+custodial component. It refuses to start unless every agent has its own `AGENT_<n>_API_TOKEN` (32+ characters, unique),
+and `POST /transfer` needs `Authorization: Bearer <that agent's token>`. `GATEWAY_ALLOW_UNAUTHENTICATED=true` skips this
+for a local sandbox and is refused when `HOST` is not loopback (`make services` sets it). Whoever steals a Gateway key
+still gets only the agent's policy: per-transaction limit, epoch budget, allowlist, one pending transfer at a time. Agent-side
+signing (the agent keeps its key and calls the vault directly) avoids the custody risk and works without the Gateway.
+
+## Sentinel event source
+
+`SENTINEL_EVENT_SOURCE=rpc` (default) walks blocks over JSON-RPC and is meant for the local sandbox or a node you run.
+For testnet use `neardata`, which needs a FastNEAR API key to keep up. Set `CHECKPOINT_PATH` to resume after a restart.
+`/status` shows lag and `/health` turns 503 when the Sentinel is behind. See [`docs/SENTINEL_INGESTION.md`](docs/SENTINEL_INGESTION.md).
 
 ## Dashboard configuration
 

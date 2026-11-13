@@ -50,7 +50,7 @@ afterEach(async () => {
 });
 
 async function post(vault: VaultClient, payload: unknown = body) {
-  app = await buildApp({ vault, logLevel: "silent" });
+  app = await buildApp({ vault, auth: { tokens: new Map(), allowUnauthenticated: true }, logLevel: "silent" });
   return app.inject({ method: "POST", url: "/transfer", payload: payload as object });
 }
 
@@ -140,7 +140,7 @@ describe("POST /transfer", () => {
   });
 
   it("GET /health", async () => {
-    app = await buildApp({ vault: fake(), logLevel: "silent" });
+    app = await buildApp({ vault: fake(), auth: { tokens: new Map(), allowUnauthenticated: true }, logLevel: "silent" });
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.json()).toEqual({ status: "ok" });
   });
@@ -148,7 +148,7 @@ describe("POST /transfer", () => {
 
 describe("POST /transfer idempotency", () => {
   async function appWith(vault: VaultClient) {
-    app = await buildApp({ vault, logLevel: "silent" });
+    app = await buildApp({ vault, auth: { tokens: new Map(), allowUnauthenticated: true }, logLevel: "silent" });
     return app;
   }
   const send = (a: FastifyInstance, payload: object = body) =>

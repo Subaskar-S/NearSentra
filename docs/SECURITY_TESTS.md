@@ -24,7 +24,7 @@ this review; one medium item (callback gas) was hardened.
 | 10 | `insecure-random` | Medium | PASS (not applicable) | The contract uses no randomness. |
 | 11 | `prepaid-gas` | Medium | **HARDENED**, PASS | See finding F2. |
 | 12 | `cover-storage-cost` | Low | PASS (accepted) | Storage growth happens only in admin-only `register_agent`, paid from the vault's balance; callers cannot make the vault store data. The runtime refuses the registration if the vault cannot cover the storage stake. |
-| 13 | `unsafe-math` | Low | PASS | `checked_add` for the spend counter (`ERR_OVERFLOW`), `saturating_sub` for rollback and views, `saturating_add` for `version`, `overflow-checks = true` in the release profile. `src/tests.rs::transfer_counter_overflow_is_rejected_not_wrapped`. |
+| 13 | `unsafe-math` | Low | PASS | `checked_add` for the spend counter (`ERR_OVERFLOW`), `checked_sub` for rollback (`saturating_sub` only in views), `saturating_add` for `version`, `overflow-checks = true` in the release profile. `src/tests.rs::transfer_counter_overflow_is_rejected_not_wrapped`. |
 | 14 | `float-math` | Low | PASS | No `f32`/`f64` anywhere in `src`. |
 
 ### Access-control table (detector 5)
@@ -71,7 +71,7 @@ this review; one medium item (callback gas) was hardened.
 | Topic | Result |
 |---|---|
 | Order of checks and state change | All 8 authorization conditions run before any state change; every rejection logs a `rejected` event and then panics (state reverts, the log persists). Verified in the sandbox. |
-| Rollback correctness | Callback uses `saturating_sub` and skips when the agent's epoch has rolled over (`on_transfer_complete(agent_id, amount, epoch_start_ns)`), so it cannot erase concurrent spend or under-count a new epoch. |
+| Rollback correctness | One reservation per agent with a monotonic transfer ID. `on_transfer_complete(agent_id, transfer_id)` reads the amount and epoch from the stored reservation, ignores unknown or already-settled IDs, uses `checked_sub` and skips the refund when the epoch has rolled over, so it cannot erase concurrent spend, under-count a new epoch or refund twice. |
 | Paused vs revoked | Revocation is permanent: `update_agent_policy` and `unpause_agent` both refuse a revoked agent. The Sentinel cannot unpause agents or the vault. |
 | Events | `EVENT_JSON:` logs follow NEP-297 with standard `nearsentra`; numbers are strings. Only the contract can emit logs under its account. |
 | Policy validation | Zero limits and zero durations rejected, `per_tx_limit <= epoch_limit` re-checked on update, expiry must be in the future, allowlist deduplicated and capped at 50. |
@@ -85,6 +85,6 @@ timelock, no deposit method, block-time timestamps.
 ## How to reproduce
 
 ```bash
-make test    # 68 unit tests and 44 sandbox integration tests
+make test    # 79 unit tests and 52 sandbox integration tests
 make lint    # clippy -D warnings, tsc --noEmit, ruff
 ```
