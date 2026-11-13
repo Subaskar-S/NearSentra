@@ -36,6 +36,9 @@ pub struct TransferRequestedData<'a> {
     pub amount: U128,
     pub decision: &'a str, // "approved" or "rejected"
     pub rejection_reason: Option<&'a str>,
+    /// ID of the reservation, present only on approved requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer_id: Option<U64>,
 }
 
 #[derive(Serialize)]
@@ -89,6 +92,35 @@ pub struct VaultUnpausedData<'a> {
 pub struct TransferRolledBackData<'a> {
     pub agent_id: &'a AccountId,
     pub amount: U128,
+    pub transfer_id: U64,
+}
+
+/// A reservation that never settled was cleared after the timeout; its amount stays counted.
+#[derive(Serialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct PendingExpiredData<'a> {
+    pub agent_id: &'a AccountId,
+    pub transfer_id: U64,
+    pub amount: U128,
+}
+
+/// A callback arrived for a reservation that is not (or no longer) the agent's pending transfer.
+#[derive(Serialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct CallbackIgnoredData<'a> {
+    pub agent_id: &'a AccountId,
+    pub transfer_id: U64,
+    pub reason: &'a str,
+}
+
+/// A rollback would have taken the counter below zero. The counter is left untouched (fail-closed).
+#[derive(Serialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct AccountingAnomalyData<'a> {
+    pub agent_id: &'a AccountId,
+    pub transfer_id: U64,
+    pub amount: U128,
+    pub spent_in_epoch: U128,
 }
 
 // ── Public log functions ──────────────────────────────────────────────────────
@@ -123,4 +155,16 @@ pub fn log_vault_unpaused(data: &VaultUnpausedData) {
 
 pub fn log_transfer_rolled_back(data: &TransferRolledBackData) {
     log_event("transfer_rolled_back", data);
+}
+
+pub fn log_pending_expired(data: &PendingExpiredData) {
+    log_event("pending_expired", data);
+}
+
+pub fn log_callback_ignored(data: &CallbackIgnoredData) {
+    log_event("callback_ignored", data);
+}
+
+pub fn log_accounting_anomaly(data: &AccountingAnomalyData) {
+    log_event("accounting_anomaly", data);
 }

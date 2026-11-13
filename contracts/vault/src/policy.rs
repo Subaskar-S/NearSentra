@@ -26,7 +26,33 @@ pub struct Policy {
     pub allowlist: Vec<AccountId>,
     pub expiry_ns: Option<u64>,
     pub version: u32,
+    /// Monotonic ID handed to the next approved transfer (never reused).
+    pub next_transfer_id: u64,
+    /// The single in-flight transfer, if any. Its amount is already counted in `spent_in_epoch`.
+    pub pending: Option<PendingTransfer>,
 }
+
+/// A payout that has been approved and reserved but whose callback has not settled yet.
+///
+/// The callback receives only the transfer `id`; the amount and the epoch it was counted in are
+/// read from this record, so a stale, duplicate or forged callback argument can never change the
+/// counter by a value the vault did not itself reserve.
+#[derive(BorshDeserialize, BorshSerialize, Clone)]
+#[borsh(crate = "near_sdk::borsh")]
+pub struct PendingTransfer {
+    pub id: u64,
+    pub amount: u128,
+    /// `epoch_start_ns` of the epoch the amount was counted in.
+    pub epoch_start_ns: u64,
+    /// Block height at which the reservation was made (used to expire a stuck reservation).
+    pub created_block: u64,
+}
+
+/// A reservation that has not settled after this many blocks is treated as settled-as-spent and
+/// cleared, so a callback that could never run cannot lock an agent out forever. The amount stays
+/// counted (fail-closed): the agent loses that budget for the current epoch, never gains any.
+/// A normal callback settles within 2-3 blocks.
+pub const PENDING_TIMEOUT_BLOCKS: u64 = 100;
 
 /// JSON view returned to callers — includes computed remaining budget.
 #[near(serializers = [json])]
@@ -43,6 +69,10 @@ pub struct PolicyView {
     pub allowlist: Vec<AccountId>,
     pub expiry_ns: Option<U64>,
     pub version: u32,
+    /// ID of the in-flight transfer, if any. While set, new requests are rejected.
+    pub pending_transfer_id: Option<U64>,
+    /// Amount reserved by the in-flight transfer (already included in `spent_in_epoch`).
+    pub pending_amount: Option<U128>,
 }
 
 /// Parameters for registering a new agent.

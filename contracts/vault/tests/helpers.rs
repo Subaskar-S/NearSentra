@@ -6,8 +6,9 @@
 
 use std::sync::{Arc, OnceLock};
 
+use near_api::types::transaction::actions::{AccessKeyPermission, FunctionCallPermission};
 use near_api::types::transaction::result::TransactionResult;
-use near_api::{AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer};
+use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer};
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json::{self, json};
 use testresult::TestResult;
@@ -326,6 +327,68 @@ impl TestEnv {
             .expect("registered")
             .spent_in_epoch
             .0
+    }
+
+    /// Give `owner` a pool of `n` scoped keys (function-call keys limited to `request_transfer`
+    /// on the vault, exactly the shape the gateway and the local network use) and return a signer
+    /// that rotates over them. Rotating keys lets many transactions be in flight at once without
+    /// colliding on a nonce, which is what real concurrent agent traffic looks like.
+    pub async fn scoped_key_pool(&self, owner: &Actor, n: usize) -> TestResult<Arc<Signer>> {
+        let mut pool: Option<Arc<Signer>> = None;
+        for _ in 0..n {
+            let secret = near_api::signer::generate_secret_key()?;
+            Account(owner.id.clone())
+                .add_key(
+                    AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                        allowance: Some(NearToken::from_near(5)),
+                        receiver_id: self.vault.to_string(),
+                        method_names: vec!["request_transfer".to_string()],
+                    }),
+                    secret.public_key(),
+                )
+                .with_signer(owner.signer.clone())
+                .send_to(&self.network)
+                .await?
+                .assert_success();
+            match &pool {
+                None => pool = Some(Signer::from_secret_key(secret)?),
+                Some(signer) => signer.add_secret_key_to_pool(secret).await?,
+            }
+        }
+        pool.ok_or_else(|| "scoped_key_pool needs n >= 1".into())
+    }
+
+    /// `request_transfer` signed by `signer` (typically a [`scoped_key_pool`](Self::scoped_key_pool))
+    /// on behalf of the account `agent`.
+    pub async fn transfer_as(
+        &self,
+        signer: &Arc<Signer>,
+        agent: &AccountId,
+        recipient: &AccountId,
+        amount: u128,
+    ) -> TestResult<TransactionResult> {
+        Ok(Contract(self.vault.clone())
+            .call_function(
+                "request_transfer",
+                json!({ "recipient": recipient, "amount": amount.to_string() }),
+            )
+            .transaction()
+            .gas(DEFAULT_GAS)
+            .with_signer(agent.clone(), signer.clone())
+            .send_to(&self.network)
+            .await?)
+    }
+
+    /// Advance the sandbox until the chain clock reaches `target_ns`.
+    pub async fn wait_until_chain_time(&self, target_ns: u64) -> TestResult<()> {
+        for _ in 0..120 {
+            if self.chain_now_ns().await >= target_ns {
+                return Ok(());
+            }
+            self.sandbox.fast_forward(20).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        Err("chain clock never reached target".into())
     }
 
     /// Latest block timestamp in nanoseconds.

@@ -4167,6 +4167,7 @@ name = "vault"
 version = "0.1.0"
 dependencies = [
  "cargo-near-build",
+ "futures",
  "near-api",
  "near-sandbox",
  "near-sdk",

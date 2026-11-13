@@ -1,14 +1,13 @@
 [package]
 name = "vault"
-description = "cargo-near-new-project-description"
+description = "NearSentra vault: policy-enforcing treasury for autonomous AI agents on NEAR"
 version = "0.1.0"
 edition = "2024"
 resolver = "3"
 rust-version = "1.95"
-# TODO: Fill out the repository field to help NEAR ecosystem tools to discover your project.
 # NEP-0330 is automatically implemented for all contracts built with https://github.com/near/cargo-near.
 # Link to the repository will be available via `contract_source_metadata` view-function.
-repository = "https://github.com/<xxx>/<xxx>"
+repository = "https://github.com/Subaskar-S/NearSentra"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -47,6 +46,7 @@ near-sandbox = "0.4.0"
 near-api = "0.8"
 cargo-near-build = "0.11.0"
 tokio = { version = "1.12.0", features = ["full"] }
+futures = "0.3.34"
 testresult = "0.4.1"
 
 [profile.release]
