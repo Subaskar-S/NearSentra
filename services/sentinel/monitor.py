@@ -10,19 +10,23 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from checkpoint import Checkpoint
+from event_source import EventSource, RpcEventSource
 from models import Alert, SentinelConfig, VaultEvent
 from pauser import Pauser
-from rpc import RpcClient, RpcError, extract_events
+from rpc import RpcClient, RpcError
 
 log = logging.getLogger("sentinel.monitor")
 
 MAX_ALERTS = 1000
 NS = 1_000_000_000
+# Remembered event identities, enough for many minutes of busy traffic; the oldest are forgotten first.
+MAX_SEEN_EVENTS = 50_000
 
 
 @dataclass(frozen=True)
@@ -100,19 +104,37 @@ class Monitor:
         detector: AnomalyDetector | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        source: EventSource | None = None,
+        checkpoint: Checkpoint | None = None,
     ) -> None:
         self.config = config
         self.rpc = rpc
         self.pauser = pauser
+        self.source: EventSource = source or RpcEventSource(rpc, config.vault_account_id)
+        self.checkpoint = checkpoint
         self.detector = detector or AnomalyDetector(config)
         self._clock = clock
         self._sleep = sleep
         self.alerts: deque[Alert] = deque(maxlen=MAX_ALERTS)
         self.last_height: int | None = None
+        self.head_height: int | None = None
         self.last_progress = clock()  # last time the final head advanced
         self.interrupted = False
         self._replay_until_height = -1  # events at or below this are catch-up, never trigger pauses
+        self._seen: OrderedDict[str, None] = OrderedDict()
+        self.duplicates_dropped = 0
         self.running = False
+
+    @property
+    def lag_blocks(self) -> int:
+        """How many final blocks the Sentinel is behind the chain head (0 until it has seen the head)."""
+        if self.head_height is None or self.last_height is None:
+            return 0
+        return max(0, self.head_height - self.last_height)
+
+    @property
+    def lagging(self) -> bool:
+        return self.lag_blocks > self.config.max_lag_blocks
 
     # ── alerts ───────────────────────────────────────────────────────────────
 
@@ -166,7 +188,22 @@ class Monitor:
 
     # ── event handling ───────────────────────────────────────────────────────
 
+    def _is_duplicate(self, ev: VaultEvent) -> bool:
+        """True if this exact log line was already processed. Events without an identity are never dropped."""
+        if ev.uid is None:
+            return False
+        if ev.uid in self._seen:
+            self._seen.move_to_end(ev.uid)
+            self.duplicates_dropped += 1
+            return True
+        self._seen[ev.uid] = None
+        while len(self._seen) > MAX_SEEN_EVENTS:
+            self._seen.popitem(last=False)
+        return False
+
     async def handle_event(self, ev: VaultEvent) -> None:
+        if self._is_duplicate(ev):
+            return
         if ev.agent_id is None:
             return
         if ev.event == "agent_unpaused":
@@ -179,45 +216,95 @@ class Monitor:
     # ── polling ──────────────────────────────────────────────────────────────
 
     async def start_from_head(self) -> None:
-        head = await self.rpc.final_block()
-        self.last_height = int(head["header"]["height"])
+        """Start at the current head. Anything produced before now is not looked at."""
+        head = await self.source.head_height()
+        self.last_height = head
+        self.head_height = head
         self.last_progress = self._clock()
 
+    async def startup(self) -> None:
+        """Resume from the checkpoint when it is valid for this chain, otherwise start from the head.
+
+        Blocks produced while the Sentinel was down are read as catch-up: they are recorded and can
+        raise alerts, but never trigger a pause (the agent may have stopped long ago).
+        """
+        head = await self.source.head_height()
+        self.head_height = head
+        self.last_progress = self._clock()
+        resumed = self.checkpoint.load() if self.checkpoint else None
+        if resumed is not None:
+            height, block_hash = resumed
+            if height > head:
+                log.warning("checkpoint is ahead of the chain (%d > %d): ignoring it", height, head)
+            else:
+                block = await self.source.block_events(height)
+                if block is None or block.block_hash != block_hash:
+                    log.warning("checkpoint block %d does not match this chain: ignoring it", height)
+                else:
+                    gap = head - height
+                    if gap > self.config.max_catchup_blocks:
+                        skipped_to = head - self.config.max_catchup_blocks
+                        self._record_gap(gap, f"checkpoint is {gap} blocks behind; skipped to block {skipped_to}")
+                        height = skipped_to
+                    self.last_height = height
+                    self._replay_until_height = head
+                    log.warning(
+                        "resumed from checkpoint at block %d (%d blocks behind, catch-up is alert-only)",
+                        height,
+                        head - height,
+                    )
+                    return
+        self.last_height = head
+        log.warning(
+            "starting from block %d: events produced while the Sentinel was not running are NOT recovered "
+            "(set CHECKPOINT_PATH to resume after a restart)",
+            head,
+        )
+
+    def _record_gap(self, observed: int, message: str) -> None:
+        log.error("ingestion gap: %s", message)
+        self.alerts.append(
+            Alert(
+                agent_id="*",
+                pattern="ingestion_gap",
+                threshold=self.config.max_catchup_blocks,
+                observed=observed,
+                action="logged_only",
+                timestamp_utc=datetime.now(UTC),
+            )
+        )
+
     async def poll_once(self) -> int:
-        """Process every new final block. Raises RpcError if the node is unreachable."""
-        head = await self.rpc.final_block()
-        head_height = int(head["header"]["height"])
+        """Process every new final block, strictly in order. Raises RpcError if the source is unreachable.
+
+        Blocks are fetched a few at a time, but each block is applied only after the whole block was
+        read, so a failure never leaves half a block applied and a retry never delivers an event twice.
+        """
+        head = await self.source.head_height()
+        self.head_height = head
         if self.last_height is None:
-            self.last_height = head_height
-        if head_height > self.last_height:
+            self.last_height = head
+        if head > self.last_height:
             self.last_progress = self._clock()
+        if self.interrupted:
+            # The first successful read after an outage: everything up to the head was produced while
+            # we could not see the chain. Mark it as catch-up BEFORE it is processed, so it is recorded
+            # but can never trigger a pause (the agent may have stopped long ago).
+            self._replay_until_height = max(self._replay_until_height, head)
         events = 0
-        for height in range(self.last_height + 1, head_height + 1):
-            block = await self.rpc.block_at(height)
-            if block is None:
-                self.last_height = height
-                continue
-            ts_ns = int(block["header"]["timestamp"])
-            for chunk_ref in block.get("chunks", []):
-                # A chunk listed with an older height_included was missed in this block;
-                # its transactions were already handled when that earlier block was scanned.
-                if int(chunk_ref.get("height_included", height)) != height:
-                    continue
-                chunk = await self.rpc.chunk(chunk_ref["chunk_hash"])
-                txs = [t for t in chunk.get("transactions", []) if t.get("receiver_id") == self.config.vault_account_id]
-                statuses = await asyncio.gather(
-                    *(self.rpc.tx_status(t["hash"], t["signer_id"]) for t in txs)
-                )
-                for status in statuses:
-                    logs = [
-                        line
-                        for r in status.get("receipts_outcome", [])
-                        for line in r.get("outcome", {}).get("logs", [])
-                    ]
-                    for ev in extract_events(logs, ts_ns, height):
+        while self.last_height < head:
+            batch = list(range(self.last_height + 1, min(head, self.last_height + self.config.fetch_concurrency) + 1))
+            results = await asyncio.gather(*(self.source.block_events(h) for h in batch), return_exceptions=True)
+            for height, result in zip(batch, results, strict=True):
+                if isinstance(result, BaseException):
+                    raise result  # earlier blocks of this batch are already applied and saved
+                if result is not None:
+                    for ev in result.events:
                         events += 1
                         await self.handle_event(ev)
-            self.last_height = height
+                    if self.checkpoint is not None:
+                        self.checkpoint.save(result.height, result.block_hash)
+                self.last_height = height
         return events
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -227,10 +314,10 @@ class Monitor:
             if self.last_height is None:
                 while not stop.is_set():
                     try:
-                        await self.start_from_head()
+                        await self.startup()
                         break
                     except RpcError as exc:
-                        log.error("cannot reach NEAR RPC at startup: %s", exc)
+                        log.error("cannot reach the chain at startup: %s", exc)
                         await self._sleep(min(self.config.reconnect_interval_secs, 10))
             last_ok = self._clock()
             while not stop.is_set():

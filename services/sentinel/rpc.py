@@ -100,10 +100,16 @@ class RpcClient:
         return await self.call("send_tx", {"signed_tx_base64": signed_base64, "wait_until": "FINAL"})
 
 
-def extract_events(logs: list[str], timestamp_ns: int, block_height: int) -> list[VaultEvent]:
-    """Parse ``EVENT_JSON:`` lines of the ``nearsentra`` standard; ignore anything else."""
+def extract_events(
+    logs: list[str], timestamp_ns: int, block_height: int, receipt_id: str | None = None
+) -> list[VaultEvent]:
+    """Parse ``EVENT_JSON:`` lines of the ``nearsentra`` standard; ignore anything else.
+
+    With a ``receipt_id`` every event gets a stable ``uid`` (``<receipt id>:<log index>``) so a duplicate
+    delivery of the same log line can be recognised later.
+    """
     events: list[VaultEvent] = []
-    for line in logs:
+    for index, line in enumerate(logs):
         if not line.startswith("EVENT_JSON:"):
             continue
         try:
@@ -120,6 +126,7 @@ def extract_events(logs: list[str], timestamp_ns: int, block_height: int) -> lis
                 decision=data.get("decision"),
                 timestamp_ns=timestamp_ns,
                 block_height=block_height,
+                uid=f"{receipt_id}:{index}" if receipt_id else None,
             )
         )
     return events
