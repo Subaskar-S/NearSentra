@@ -98,10 +98,10 @@ Test references use `contracts/vault/tests/<file>::<test>` for sandbox integrati
 
 - **Preconditions:** An attacker sees an agent's earlier `request_transfer` transaction.
 - **Attacker Action:** Rebroadcasts the same signed transaction, or has the agent/gateway repeat the same request.
-- **Expected System Behavior:** NEAR rejects a rebroadcast signed transaction (nonce already used, block hash expires). A new, identical request from a holder of the key is a new transaction and is evaluated again, consuming budget each time. The gateway `request_id` is returned for correlation and is not used to deduplicate.
-- **Enforcement Layer:** contract (budget caps), NEAR protocol (nonces)
-- **Test or Simulation Reference:** manual: protocol nonce behaviour is not re-tested here; repeated spend is bounded by `test_authorization.rs::epoch_limit_rejected_when_cumulative_exceeds`.
-- **Residual Risk:** Accepted. Duplicate legitimate requests are charged against the budget twice; idempotency keys are not implemented.
+- **Expected System Behavior:** NEAR rejects a rebroadcast signed transaction (nonce already used, block hash expires). A new, identical request from a holder of the key is a new transaction and is evaluated again, consuming budget each time. The gateway therefore treats `(agent_id, request_id)` as an idempotency key: the first request is processed, and any repeat with the same recipient and amount (including concurrent ones) gets the stored response with an `idempotent-replay: true` header and submits nothing. Reusing a `request_id` with a different recipient or amount returns HTTP 409 `request_id_conflict`. Results are remembered once a transaction may have reached the chain (including 502 submission or outcome errors, so a retry cannot double pay); results where nothing was submitted (503 preflight failure, 422 no key) are not, so the agent can retry them. To retry on purpose after an ambiguous 502, use a new `request_id`.
+- **Enforcement Layer:** gateway (idempotency), contract (budget caps), NEAR protocol (nonces)
+- **Test or Simulation Reference:** `services/gateway/test/routes.test.ts` "POST /transfer idempotency"; `services/gateway/test/idempotency.test.ts`; protocol nonce behaviour is not re-tested here; repeated spend is bounded by `test_authorization.rs::epoch_limit_rejected_when_cumulative_exceeds`.
+- **Residual Risk:** Reduced. The idempotency store is in memory, per gateway process, with a 24 hour TTL and 10,000 entry cap. It is lost on restart and not shared between gateway instances, so a retry after a restart can still be charged against the budget twice. The contract's limits remain the final authority.
 
 ### T8. Timestamp or boundary manipulation
 
