@@ -87,6 +87,15 @@ async fn main() -> testresult::TestResult<()> {
         writeln!(out, "AGENT_{n}_PRIVATE_KEY={key}")?;
     }
 
+    // Agent-to-agent demo: ResearchAgent is agent number 6 (scoped request_transfer key, so the
+    // gateway can sign for it) and AnalysisAgent is a plain account that only receives payment.
+    let research = create_actor(&env.sandbox, "research", ACCOUNT_BALANCE).await?;
+    let research_key = add_scoped_key(&env, &research, &["request_transfer"]).await?;
+    writeln!(out, "AGENT_{}_ACCOUNT_ID={}", AGENTS + 1, research.id)?;
+    writeln!(out, "AGENT_{}_PRIVATE_KEY={research_key}", AGENTS + 1)?;
+    let analysis = create_actor(&env.sandbox, "analysis", ACCOUNT_BALANCE).await?;
+    writeln!(out, "ANALYSIS_ACCOUNT_ID={}", analysis.id)?;
+
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.localnet");
     std::fs::create_dir_all(&dir)?;
     let file = dir.join("localnet.env");

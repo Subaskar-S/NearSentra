@@ -184,6 +184,15 @@ Test references use `contracts/vault/tests/<file>::<test>` for sandbox integrati
 - **Test or Simulation Reference:** `test_registration.rs::allowlist_dedupe_and_capacity`, `::register_with_51_entries_rejected`; `test_authorization.rs::unregistered_caller_rejected`; `services/sentinel/tests/test_monitor.py::test_unregistered_account_is_not_paused`.
 - **Residual Risk:** Accepted. Request spam can still add load to the Sentinel's RPC polling, and the Sentinel pausing a busy agent is an availability trade-off. Choose the velocity threshold above the agent's normal rate.
 
+### T17. Agent-to-agent payment: seller overcharge, redirected payment, or impersonation
+
+- **Preconditions:** A buyer agent (ResearchAgent) is registered with a per-transaction limit equal to the agreed service price, an epoch budget, and only the seller agent (AnalysisAgent) allowlisted.
+- **Attacker Action:** The seller raises its price after the deal; a prompt injection tells the buyer to pay a stranger instead; the buyer is told to buy the service again past its budget; a third party signs a payment with its own key to spend the buyer's budget; or the buyer keeps paying after the admin paused it.
+- **Expected System Behavior:** The vault rejects each request with its own code: `ERR_PER_TX_LIMIT`, `ERR_RECIPIENT_NOT_ALLOWED`, `ERR_EPOCH_LIMIT`, `ERR_AGENT_NOT_REGISTERED` (identity is the on-chain caller, never a request field) and `ERR_AGENT_PAUSED`. No balance or spent counter changes. The agreed payment is approved, reserved before the payout and settled once in the callback, so the seller receives exactly the price.
+- **Enforcement Layer:** contract. The Gateway only forwards the request and reports the contract's decision.
+- **Test or Simulation Reference:** `test_agent_to_agent.rs::research_agent_pays_analysis_agent_under_policy`; simulation scenario 6 and `make demo-agent-payment` (same steps through the Gateway).
+- **Residual Risk:** Accepted. The vault limits how much and to whom an agent pays, but it cannot check that the seller delivered the service, and there is no escrow or refund. A dishonest allowlisted seller can keep one payment within the limits. Allowlist only sellers you trust and keep the per-transaction limit close to the price.
+
 ---
 
 ## 3. Known limitations

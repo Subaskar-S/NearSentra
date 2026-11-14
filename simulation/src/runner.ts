@@ -6,12 +6,13 @@ import { run as scenario2 } from "./scenarios/scenario2_rogue.js";
 import { run as scenario3 } from "./scenarios/scenario3_runaway.js";
 import { run as scenario4 } from "./scenarios/scenario4_sentinel.js";
 import { run as scenario5 } from "./scenarios/scenario5_revoked.js";
+import { run as scenario6 } from "./scenarios/scenario6_agent_to_agent.js";
 
 export { assertOutcome, printScenarioResult } from "./helpers.js";
 
 async function main(): Promise<void> {
   const ctx = loadContext();
-  const scenarios = [scenario1, scenario2, scenario3, scenario4, scenario5];
+  const scenarios = [scenario1, scenario2, scenario3, scenario4, scenario5, scenario6];
   for (const [i, scenario] of scenarios.entries()) {
     console.log(`\n=== Scenario ${i + 1} of ${scenarios.length} ===`);
     await scenario(ctx);
