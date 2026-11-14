@@ -1,0 +1,336 @@
+/* NearSentra dashboard theme. Bootstrap's dark mode (data-bs-theme="dark") does the base work;
+   this file sets the palette and the few custom pieces (header, tiles, agent cards, feed rows). */
+
+[data-bs-theme='dark'] {
+  --ns-bg: #0a0f1f;
+  --ns-surface: #111933;
+  --ns-surface-2: #172041;
+  --ns-border: #232e55;
+  --ns-text-dim: #8d9ac0;
+  --ns-accent: #00ec97; /* NEAR mint */
+  --ns-accent-soft: rgba(0, 236, 151, 0.12);
+  --ns-ok: #19d98b;
+  --ns-ok-soft: rgba(25, 217, 139, 0.1);
+  --ns-bad: #ff5d73;
+  --ns-bad-soft: rgba(255, 93, 115, 0.1);
+  --ns-warn: #ffb938;
+  --ns-warn-soft: rgba(255, 185, 56, 0.14);
+
+  --bs-body-bg: var(--ns-bg);
+  --bs-body-color: #e6ebff;
+  --bs-secondary-color: var(--ns-text-dim);
+  --bs-border-color: var(--ns-border);
+  --bs-card-bg: var(--ns-surface);
+  --bs-card-cap-bg: var(--ns-surface-2);
+  --bs-card-border-color: var(--ns-border);
+  --bs-table-bg: transparent;
+  --bs-table-striped-bg: rgba(255, 255, 255, 0.02);
+  --bs-table-border-color: var(--ns-border);
+  --bs-emphasis-color: #fff;
+}
+
+body {
+  background: radial-gradient(1200px 500px at 10% -10%, rgba(0, 236, 151, 0.09), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(86, 104, 255, 0.12), transparent 60%), var(--ns-bg);
+  background-attachment: fixed;
+  min-height: 100vh;
+  font-feature-settings: 'tnum';
+}
+
+.text-dim {
+  color: var(--ns-text-dim);
+}
+
+/* Header ---------------------------------------------------------------- */
+.ns-header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+.ns-brand {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+}
+.ns-logo {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  filter: drop-shadow(0 0 14px rgba(0, 236, 151, 0.35));
+}
+.ns-title {
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+  line-height: 1.1;
+}
+.ns-title span {
+  color: var(--ns-accent);
+}
+.ns-tagline {
+  color: var(--ns-text-dim);
+  font-size: 0.85rem;
+}
+.ns-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.ns-pill {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+  border: 1px solid var(--ns-border);
+  border-radius: 999px;
+  background: var(--ns-surface);
+  color: var(--ns-text-dim);
+}
+.ns-pill strong {
+  color: #e6ebff;
+  font-weight: 600;
+}
+.ns-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ns-ok);
+  box-shadow: 0 0 0 0 rgba(25, 217, 139, 0.6);
+  animation: ns-pulse 2s infinite;
+}
+.ns-dot.bad {
+  background: var(--ns-bad);
+  animation: none;
+}
+@keyframes ns-pulse {
+  70% {
+    box-shadow: 0 0 0 7px rgba(25, 217, 139, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(25, 217, 139, 0);
+  }
+}
+
+/* Cards and section titles ------------------------------------------------ */
+.card {
+  border-radius: 14px;
+  overflow: hidden;
+}
+.card-header {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.ns-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ns-text-dim);
+}
+.ns-section-title small {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* Summary tiles ------------------------------------------------------------- */
+.ns-tile {
+  height: 100%;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--ns-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--ns-surface-2), var(--ns-surface));
+}
+.ns-tile-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ns-text-dim);
+}
+.ns-tile-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-top: 0.15rem;
+}
+.ns-tile-value small {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ns-text-dim);
+}
+.ns-tile-sub {
+  font-size: 0.78rem;
+  color: var(--ns-text-dim);
+  min-height: 1.1rem;
+}
+.ns-tile.ok .ns-tile-value {
+  color: var(--ns-ok);
+}
+.ns-tile.bad .ns-tile-value {
+  color: var(--ns-bad);
+}
+
+/* Agent cards ---------------------------------------------------------------- */
+.ns-agent {
+  height: 100%;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--ns-border);
+  border-radius: 14px;
+  background: var(--ns-surface);
+  border-top: 3px solid var(--ns-ok);
+}
+.ns-agent.paused {
+  border-top-color: var(--ns-warn);
+}
+.ns-agent.revoked {
+  border-top-color: var(--ns-bad);
+}
+.ns-agent-name {
+  font-weight: 650;
+  font-size: 1.05rem;
+}
+.ns-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--ns-text-dim);
+}
+.ns-meter {
+  height: 8px;
+  border-radius: 999px;
+  background: #0b1229;
+  overflow: hidden;
+  border: 1px solid var(--ns-border);
+}
+.ns-meter > div {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ns-ok);
+  transition: width 0.4s ease;
+}
+.ns-meter > div.mid {
+  background: var(--ns-warn);
+}
+.ns-meter > div.high {
+  background: var(--ns-bad);
+}
+.ns-kv {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  padding: 0.18rem 0;
+  color: var(--ns-text-dim);
+}
+.ns-kv strong {
+  color: #e6ebff;
+  font-weight: 600;
+}
+.ns-chip {
+  display: inline-block;
+  margin: 0.15rem 0.25rem 0 0;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  border: 1px solid var(--ns-border);
+  background: var(--ns-surface-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Status badges --------------------------------------------------------------- */
+.ns-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ns-badge.active,
+.ns-badge.approved {
+  color: var(--ns-ok);
+  background: var(--ns-ok-soft);
+}
+.ns-badge.paused {
+  color: var(--ns-warn);
+  background: var(--ns-warn-soft);
+}
+.ns-badge.revoked,
+.ns-badge.rejected {
+  color: var(--ns-bad);
+  background: var(--ns-bad-soft);
+}
+
+/* Transfer feed ----------------------------------------------------------------- */
+.ns-feed td {
+  vertical-align: middle;
+}
+.ns-feed tr.approved td:first-child {
+  box-shadow: inset 3px 0 0 var(--ns-ok);
+}
+.ns-feed tr.rejected td:first-child {
+  box-shadow: inset 3px 0 0 var(--ns-bad);
+}
+.ns-feed tr.rejected {
+  background: var(--ns-bad-soft);
+}
+.ns-feed tr.approved {
+  background: var(--ns-ok-soft);
+}
+.ns-amount {
+  font-weight: 700;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+.ns-arrow {
+  color: var(--ns-text-dim);
+  padding: 0 0.35rem;
+}
+.ns-reason-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--ns-text-dim);
+}
+.ns-copy {
+  border: 1px solid var(--ns-border);
+  background: transparent;
+  color: var(--ns-text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  border-radius: 6px;
+  padding: 0.12rem 0.45rem;
+}
+.ns-copy:hover {
+  color: var(--ns-accent);
+  border-color: var(--ns-accent);
+}
+
+/* Misc ---------------------------------------------------------------------------- */
+.btn-ns {
+  --bs-btn-color: #04120c;
+  --bs-btn-bg: var(--ns-accent);
+  --bs-btn-border-color: var(--ns-accent);
+  --bs-btn-hover-bg: #34f3ac;
+  --bs-btn-hover-border-color: #34f3ac;
+  --bs-btn-hover-color: #04120c;
+  font-weight: 600;
+}
+.ns-footer {
+  margin: 2rem 0 1rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--ns-text-dim);
+}

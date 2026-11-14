@@ -54,10 +54,18 @@ echo "==> sentinel on http://127.0.0.1:$SENTINEL_PORT"
   "$SENTINEL_PY" -m uvicorn main:app --host 127.0.0.1 --port "$SENTINEL_PORT") &
 PIDS+=($!)
 
+# Display names for the agent-to-agent demo accounts (cosmetic only; the chain still uses account IDs).
+AGENT_LABELS=""
+[ -n "${AGENT_6_ACCOUNT_ID:-}" ] && AGENT_LABELS="${AGENT_6_ACCOUNT_ID}=ResearchAgent"
+[ -n "${ANALYSIS_ACCOUNT_ID:-}" ] && AGENT_LABELS="${AGENT_LABELS:+$AGENT_LABELS,}${ANALYSIS_ACCOUNT_ID}=AnalysisAgent"
+
 echo "==> dashboard on http://localhost:5173 (read-only against the local network)"
+# The lookback is how many past blocks the dashboard scans on load, so a page opened (or refreshed)
+# some minutes after a demo still shows its payments.
 (cd "$ROOT/frontend" && exec env -i PATH="$PATH" HOME="$HOME" \
   VITE_NEAR_RPC_URL="$NEAR_RPC_URL" VITE_VAULT_ACCOUNT_ID="$VAULT_ACCOUNT_ID" \
   VITE_SENTINEL_URL="http://127.0.0.1:$SENTINEL_PORT" VITE_AGENT_IDS="$AGENT_IDS" \
+  VITE_AGENT_LABELS="$AGENT_LABELS" VITE_EVENT_LOOKBACK_BLOCKS="${DASHBOARD_LOOKBACK_BLOCKS:-30000}" \
   npx vite --host 127.0.0.1 --port 5173) &
 PIDS+=($!)
 
