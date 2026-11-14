@@ -85,6 +85,6 @@ timelock, no deposit method, block-time timestamps.
 ## How to reproduce
 
 ```bash
-make test    # 79 unit tests and 52 sandbox integration tests
+make test    # 79 unit tests and 53 sandbox integration tests
 make lint    # clippy -D warnings, tsc --noEmit, ruff
 ```

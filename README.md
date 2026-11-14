@@ -46,7 +46,7 @@ Dependencies installed.
 make test
 ```
 
-Runs 79 unit tests and 52 sandbox integration tests. Expected final line:
+Runs 79 unit tests and 53 sandbox integration tests. Expected final line:
 
 ```
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -189,7 +189,7 @@ admin account, and each call attaches 1 yoctoNEAR so the wallet asks for a full-
 | **NEP-297 events** | The vault logs every approved and rejected request as a structured event. The Sentinel and the dashboard read these events from the chain. |
 | **Named accounts and sub-accounts** | Every actor is a named account (`vault.sandbox`, `research.sandbox`, and so on), so the policy allowlist reads as account IDs. |
 | **NEAR RPC and `near-api-js` 7** | The Gateway, simulations and dashboard submit transactions and read state over JSON-RPC. |
-| **`near-sandbox` and `near-api` (Rust)** | The contract's 52 integration tests and the local network run on a real sandbox node. |
+| **`near-sandbox` and `near-api` (Rust)** | The contract's 53 integration tests and the local network run on a real sandbox node. |
 | **`@hot-labs/near-connect`** | The dashboard uses it so the admin can sign pause, revoke and unpause in a wallet. The dashboard holds no keys. |
 
 Not used: NEAR Intents, Chain Signatures, NEAR AI Cloud and TEEs. The vault moves native NEAR only. Fungible-token and cross-chain
