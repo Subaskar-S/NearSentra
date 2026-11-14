@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use helpers::*;
 use near_api::types::transaction::actions::{AccessKeyPermission, FunctionCallPermission};
 use near_api::{Account, NearToken, Signer};
+use near_sandbox::config::SandboxConfig;
 
 const AGENTS: usize = 5;
 
@@ -45,7 +46,16 @@ async fn add_scoped_key(
 
 #[tokio::main]
 async fn main() -> testresult::TestResult<()> {
-    let env = setup().await?;
+    // A sandbox node deletes old blocks after about 250 of them (roughly 30 seconds), which would
+    // leave the dashboard unable to show payments from a few minutes ago. Keep about an hour.
+    let env = setup_with_config(
+        true,
+        SandboxConfig {
+            additional_config: Some(near_sdk::serde_json::json!({ "gc_num_epochs_to_keep": 600 })),
+            ..Default::default()
+        },
+    )
+    .await?;
     let _ = Signer::from_secret_key; // keep import used in all cfgs
 
     let mut out = String::new();

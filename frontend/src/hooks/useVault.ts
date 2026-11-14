@@ -33,17 +33,24 @@ export function useVault(): VaultData {
     busy.current = true;
     try {
       const status = await viewVaultStatus(provider, config.vaultAccountId);
-      // Events are best effort: a scan failure must not hide the authoritative contract state.
+      const loadPolicies = async (ids: Iterable<string>) =>
+        (await Promise.all([...ids].map((id) => viewAgentPolicy(provider, config.vaultAccountId, id)))).filter(
+          (p): p is AgentPolicy => p !== null,
+        );
+
+      // Paint the authoritative contract state first, so a long event scan never delays it.
+      setVaultStatus(status);
+      setAgents(await loadPolicies(config.agentIds));
+      setLoading(false);
+
+      // Events are best effort: a scan failure must not hide the contract state.
       let scanError: string | null = null;
       try {
         await scanner.current.poll();
       } catch (e) {
         scanError = `event feed: ${e instanceof Error ? e.message : String(e)}`;
       }
-      const ids = new Set([...config.agentIds, ...scanner.current.agents]);
-      const policies = await Promise.all([...ids].map((id) => viewAgentPolicy(provider, config.vaultAccountId, id)));
-      setVaultStatus(status);
-      setAgents(policies.filter((p): p is AgentPolicy => p !== null));
+      setAgents(await loadPolicies(new Set([...config.agentIds, ...scanner.current.agents])));
       setRecentTransfers(scanner.current.recentTransfers);
       setError(scanError);
       setLastUpdated(Date.now());

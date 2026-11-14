@@ -16,6 +16,8 @@ The contract is the final authority; the other components add visibility and ear
 
 Read next: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (17 attack scenarios) and [`docs/SECURITY_TESTS.md`](docs/SECURITY_TESTS.md) (contract audit).
 
+![NearSentra dashboard after the agent-to-agent demo: one approved 2 NEAR payment and five blocked requests with reasons](docs/images/dashboard.png)
+
 ## Quick Start
 
 Everything below runs on a **local sandbox**. Nothing touches testnet or mainnet.
@@ -168,7 +170,9 @@ For testnet use `neardata`, which needs a FastNEAR API key to keep up. Set `CHEC
 
 Copy `frontend/.env.example` to `frontend/.env.local`. `VITE_NEAR_RPC_URL` and `VITE_VAULT_ACCOUNT_ID` choose the chain and vault,
 `VITE_SENTINEL_URL` the Sentinel, and `VITE_AGENT_IDS` the agents to watch (the vault has no "list agents" method; agents seen in
-events are added automatically). The dashboard holds no keys: pause/revoke/unpause are signed in the connected wallet with the
+events are added automatically). `VITE_AGENT_LABELS` (`account=Name,...`) shows friendly names such as ResearchAgent next to account
+IDs, and `VITE_EVENT_LOOKBACK_BLOCKS` sets how many past blocks the page scans for payment events on load (`make services` sets both
+for the local demo; the local network keeps about an hour of history). The dashboard holds no keys: pause/revoke/unpause are signed in the connected wallet with the
 admin account, and each call attaches 1 yoctoNEAR so the wallet asks for a full-access confirmation.
 
 ## Security notes

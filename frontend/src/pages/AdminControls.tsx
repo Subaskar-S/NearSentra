@@ -46,6 +46,8 @@ export function AdminControls({ vaultStatus, agents, onChanged }: Props) {
   const { signedAccountId, signIn, signOut, callFunctionRaw, loading } = useNearWallet();
   const [pending, setPending] = useState<string | null>(null);
   const [result, setResult] = useState<CallResult | null>(null);
+  // The controls cannot sign against a local sandbox, so start collapsed there.
+  const [open, setOpen] = useState(!config.isLocalRpc);
 
   const signedIn = signedAccountId !== '';
   const isAdmin = signedIn && vaultStatus !== null && signedAccountId === vaultStatus.admin_account_id;
@@ -72,23 +74,36 @@ export function AdminControls({ vaultStatus, agents, onChanged }: Props) {
 
   return (
     <section className="card mb-4">
-      <div className="card-header d-flex justify-content-between align-items-center">
-        <span className="fw-semibold">Admin controls</span>
-        {loading ? (
-          <span className="text-muted small">Loading wallet…</span>
-        ) : signedIn ? (
-          <span>
-            <span className="font-monospace small me-2">{signedAccountId}</span>
-            <button className="btn btn-sm btn-outline-secondary" onClick={() => void signOut()}>
-              Sign out
+      <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span className="fw-semibold">
+          Admin controls
+          {config.isLocalRpc && <span className="text-dim fw-normal small ms-2">read-only on the local sandbox</span>}
+        </span>
+        <span className="d-flex align-items-center gap-2">
+          {loading ? (
+            <span className="text-dim small">Loading wallet…</span>
+          ) : signedIn ? (
+            <>
+              <span className="ns-mono">{signedAccountId}</span>
+              <button className="btn btn-sm btn-outline-secondary" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-sm btn-ns" onClick={() => void signIn()}>
+              Connect wallet
             </button>
-          </span>
-        ) : (
-          <button className="btn btn-sm btn-primary" onClick={() => void signIn()}>
-            Connect wallet
+          )}
+          <button
+            className="btn btn-sm btn-outline-secondary"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? 'Hide' : 'Show'}
           </button>
-        )}
+        </span>
       </div>
+      {open && (
       <div className="card-body">
         {config.isLocalRpc && (
           <div className="alert alert-info py-2">
@@ -195,6 +210,7 @@ export function AdminControls({ vaultStatus, agents, onChanged }: Props) {
           </div>
         )}
       </div>
+      )}
     </section>
   );
 }

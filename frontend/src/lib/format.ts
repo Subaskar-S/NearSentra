@@ -33,6 +33,20 @@ export function secondsUntilEpochReset(epochStartNs: string, epochDurationNs: st
   return (resetAtMs - nowMs) / 1000;
 }
 
+/** Whole NEAR amount for a yoctoNEAR bigint, with up to `decimals` fractional digits. */
+export function formatNearBig(yocto: bigint, decimals = 2): string {
+  return formatNear(yocto.toString(), decimals);
+}
+
+/** Short relative time such as `12s ago`, `3m ago`, `2h ago`. */
+export function timeAgo(thenMs: number, nowMs: number): string {
+  const s = Math.max(0, Math.floor((nowMs - thenMs) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 export function shortHash(h: string): string {
   return h.length > 14 ? `${h.slice(0, 7)}…${h.slice(-5)}` : h;
 }
