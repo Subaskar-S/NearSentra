@@ -14,7 +14,7 @@ The contract is the final authority; the other components add visibility and ear
 | Dashboard (React, Vite) | `frontend` | Agent status, transfer feed, alerts, wallet-signed pause/revoke |
 | Simulations (TypeScript) | `simulation` | Five attack scenarios and an agent-to-agent payment that run real transactions on a local network |
 
-Read next: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (16 attack scenarios) and [`docs/SECURITY_TESTS.md`](docs/SECURITY_TESTS.md) (contract audit).
+Read next: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (17 attack scenarios) and [`docs/SECURITY_TESTS.md`](docs/SECURITY_TESTS.md) (contract audit).
 
 ## Quick Start
 
