@@ -96,7 +96,20 @@ pub async fn setup() -> TestResult<TestEnv> {
 
 /// Like [`setup`], but `with_sentinel = false` initialises with no sentinel.
 pub async fn setup_with(with_sentinel: bool) -> TestResult<TestEnv> {
-    let sandbox = near_sandbox::Sandbox::start_sandbox().await?;
+    setup_with_config(
+        with_sentinel,
+        near_sandbox::config::SandboxConfig::default(),
+    )
+    .await
+}
+
+/// Like [`setup_with`], with a custom sandbox node configuration (the local network launcher uses
+/// it to keep more block history). A default config behaves exactly like `start_sandbox()`.
+pub async fn setup_with_config(
+    with_sentinel: bool,
+    config: near_sandbox::config::SandboxConfig,
+) -> TestResult<TestEnv> {
+    let sandbox = near_sandbox::Sandbox::start_sandbox_with_config(config).await?;
     let network = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse()?);
 
     let admin = create_actor(&sandbox, "admin", ACCOUNT_BALANCE).await?;
