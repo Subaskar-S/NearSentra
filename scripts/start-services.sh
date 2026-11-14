@@ -36,7 +36,7 @@ set +a
 # on a non-loopback HOST).
 GATEWAY_ENV=(NEAR_RPC_URL="$NEAR_RPC_URL" VAULT_ACCOUNT_ID="$VAULT_ACCOUNT_ID" HOST=127.0.0.1 PORT="$GATEWAY_PORT" GATEWAY_ALLOW_UNAUTHENTICATED=true)
 AGENT_IDS=""
-for n in 1 2 3 4 5; do
+for n in 1 2 3 4 5 6; do
   id_var="AGENT_${n}_ACCOUNT_ID"
   key_var="AGENT_${n}_PRIVATE_KEY"
   GATEWAY_ENV+=("$id_var=${!id_var}" "$key_var=${!key_var}")

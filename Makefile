@@ -1,4 +1,4 @@
-.PHONY: install test sandbox-deploy services simulate lint
+.PHONY: install test sandbox-deploy services simulate demo-agent-payment lint
 
 VAULT_DIR := contracts/vault
 
@@ -18,7 +18,7 @@ install:
 # Run all contract unit tests and sandbox integration tests.
 # Fails (non-zero) if any test fails or any expected integration test file is missing.
 test:
-	@for f in init access_control registration authorization epoch suspension callback; do \
+	@for f in init access_control registration authorization epoch suspension callback agent_to_agent; do \
 		test -f $(VAULT_DIR)/tests/test_$$f.rs || { echo "missing sandbox test: test_$$f.rs"; exit 1; }; \
 	done
 	cd $(VAULT_DIR) && cargo test
@@ -34,9 +34,14 @@ sandbox-deploy:
 services:
 	./scripts/start-services.sh
 
-# Run the five attack simulations against a throwaway local sandbox.
+# Run the six simulations (five attack scenarios and the agent-to-agent payment) against a throwaway local sandbox.
 simulate:
 	./scripts/run-simulation.sh
+
+# Agent-to-agent payment through the running Gateway, visible on the dashboard
+# (needs `make sandbox-deploy` and `make services` running in other terminals).
+demo-agent-payment:
+	./scripts/run-agent-payment-demo.sh
 
 # Lint every component.
 lint:

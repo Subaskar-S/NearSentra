@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the five NearSentra attack simulations against a throwaway LOCAL sandbox.
+# Run the six NearSentra simulations (five attacks and an agent-to-agent payment) against a throwaway LOCAL sandbox.
 #
 # Starts the local network (contracts/vault/examples/localnet.rs), then the Sentinel
 # with only its own scoped key, then the simulation runner. Everything started here is

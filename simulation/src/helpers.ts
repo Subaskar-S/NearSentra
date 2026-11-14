@@ -26,6 +26,8 @@ export interface PolicyView {
   spent_in_epoch: string;
   remaining_epoch_budget: string;
   allowlist: string[];
+  /** In-flight transfer ID; null once the settling callback has run. */
+  pending_transfer_id: string | null;
 }
 
 export interface Context {
@@ -34,8 +36,15 @@ export interface Context {
   admin: Account;
   recipientId: string;
   attackerId: string;
+  /** The attacker account signed with its own key (it is not a registered agent). */
+  attacker: Account;
+  /** AnalysisAgent, the seller in the agent-to-agent demo. A plain account, not a registered agent. */
+  analysisId: string;
   sentinelId: string;
-  /** Agent n (1..5): account ID and a function-call account limited to request_transfer. */
+  /**
+   * Agent n (1..6): account ID and a function-call account limited to request_transfer.
+   * Agent 6 is ResearchAgent, the buyer in the agent-to-agent demo.
+   */
   agents: Array<{ id: string; account: Account }>;
   /** Sentinel account signed with its leaked *full-access* key (worst case for scenario 4). */
   sentinelOwner: Account;
@@ -64,7 +73,7 @@ function account(id: string, key: string, provider: JsonRpcProvider): Account {
 export function loadContext(): Context {
   const provider = new JsonRpcProvider({ url: requireEnv("NEAR_RPC_URL") });
   const sentinelId = requireEnv("SENTINEL_ACCOUNT_ID");
-  const agents = [1, 2, 3, 4, 5].map((n) => {
+  const agents = [1, 2, 3, 4, 5, 6].map((n) => {
     const id = requireEnv(`AGENT_${n}_ACCOUNT_ID`);
     return { id, account: account(id, requireEnv(`AGENT_${n}_PRIVATE_KEY`), provider) };
   });
@@ -74,6 +83,8 @@ export function loadContext(): Context {
     admin: account(requireEnv("ADMIN_ACCOUNT_ID"), requireEnv("ADMIN_PRIVATE_KEY"), provider),
     recipientId: requireEnv("RECIPIENT_ACCOUNT_ID"),
     attackerId: requireEnv("ATTACKER_ACCOUNT_ID"),
+    attacker: account(requireEnv("ATTACKER_ACCOUNT_ID"), requireEnv("ATTACKER_PRIVATE_KEY"), provider),
+    analysisId: requireEnv("ANALYSIS_ACCOUNT_ID"),
     sentinelId,
     agents,
     sentinelOwner: account(sentinelId, requireEnv("SENTINEL_OWNER_PRIVATE_KEY"), provider),
@@ -132,6 +143,11 @@ export async function callVault(
 
 export const requestTransfer = (ctx: Context, agent: Account, recipient: string, amount: bigint): Promise<TxResult> =>
   callVault(ctx, agent, "request_transfer", { recipient, amount: amount.toString() });
+
+/** Total NEAR balance of an account in yoctoNEAR. */
+export async function getBalance(ctx: Context, accountId: string): Promise<bigint> {
+  return BigInt((await ctx.provider.viewAccount({ accountId })).amount);
+}
 
 export async function getPolicy(ctx: Context, agentId: string): Promise<PolicyView | null> {
   const result = await ctx.provider.callFunction<PolicyView>({
